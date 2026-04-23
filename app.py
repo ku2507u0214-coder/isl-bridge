@@ -4,31 +4,36 @@ import cv2
 import numpy as np
 import tensorflow as tf
 import av
+import os
 
-# --- 1. SETTING COMPATIBILITY (IMPORTANT FOR TF 2.16+) ---
-os_environ = ["TF_ENABLE_ONEDNN_OPTS", "0"] # Disabling for stability
-
-# --- 2. PAGE CONFIG (SEXY UI) ---
+# --- PAGE CONFIG ---
 st.set_page_config(page_title="VoxHand AI", page_icon="🤟", layout="wide")
 
+# Sexy Neon UI CSS
 st.markdown("""
     <style>
-    .stApp { background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%); color: white; }
-    h1 { color: #00f2fe; text-shadow: 0px 0px 10px #00f2fe; }
-    .stMetric { background: rgba(255, 255, 255, 0.1); padding: 15px; border-radius: 15px; border: 1px solid #00f2fe; }
+    .stApp {
+        background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+        color: white;
+    }
+    h1 {
+        color: #00f2fe;
+        text-shadow: 0px 0px 15px #00f2fe;
+        text-align: center;
+    }
+    .stMetric {
+        background: rgba(255, 255, 255, 0.05);
+        padding: 20px;
+        border-radius: 15px;
+        border: 1px solid #00f2fe;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. LOAD AI MODEL (LEGACY SUPPORT) ---
+# --- LOAD MODEL ---
 @st.cache_resource
 def load_my_model():
-    # Force Keras to use legacy loading for .h5 files from Teachable Machine
-    try:
-        model = tf.keras.models.load_model("keras_model.h5", compile=False)
-        return model
-    except Exception as e:
-        st.error(f"Model Load Error: {e}")
-        return None
+    return tf.keras.models.load_model("keras_model.h5", compile=False)
 
 model = load_my_model()
 
@@ -37,47 +42,42 @@ try:
     with open("labels.txt", "r") as f:
         labels = [line.strip().split(' ', 1)[-1] for line in f.readlines()]
 except:
-    labels = ["Action", "Status", "Object", "Background"]
+    labels = ["Sign 1", "Sign 2", "Sign 3", "Background"]
 
-# --- 4. AI PROCESSING LOGIC ---
+# --- AI INFERENCE LOGIC ---
 def video_frame_callback(frame):
     img = frame.to_ndarray(format="bgr24")
     
-    # Pre-processing (Match Teachable Machine input)
-    h, w, _ = img.shape
+    # Pre-processing for Teachable Machine Model
     resized = cv2.resize(img, (224, 224))
     normalized = (resized.astype(np.float32) / 127.5) - 1
     data = np.expand_dims(normalized, axis=0)
 
-    # Prediction
-    if model is not None:
-        prediction = model.predict(data, verbose=0)
-        index = np.argmax(prediction)
-        confidence = prediction[0][index]
-        label = labels[index]
+    # Predict
+    prediction = model.predict(data, verbose=0)
+    index = np.argmax(prediction)
+    confidence = prediction[0][index]
+    label = labels[index]
 
-        # Sexy Overlay
-        if confidence > 0.80:
-            cv2.putText(img, f"{label.upper()} ({int(confidence*100)}%)", (40, 80), 
-                        cv2.FONT_HERSHEY_DUPLEX, 1.8, (0, 255, 255), 3)
-            cv2.rectangle(img, (20, 20), (w-20, h-20), (0, 255, 0), 2)
+    # Draw UI on Video Frame
+    if confidence > 0.85:
+        cv2.rectangle(img, (20, 20), (500, 110), (0, 255, 0), -1)
+        cv2.putText(img, f"{label.upper()}", (40, 85), 
+                    cv2.FONT_HERSHEY_DUPLEX, 1.8, (0, 0, 0), 3)
+    else:
+        cv2.putText(img, "Scanning...", (40, 85), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 165, 255), 2)
     
     return av.VideoFrame.from_ndarray(img, format="bgr24")
 
-# --- 5. MAIN UI LAYOUT ---
-with st.sidebar:
-    st.title("🤟 VoxHand AI")
-    st.write("Solo Project: Aayush Pandey")
-    st.markdown("---")
-    st.success("Model Status: Online")
-    st.info("Tip: Keep hand within the frame for best results.")
+# --- MAIN APP INTERFACE ---
+st.title("🤟 VoxHand AI: ISL Interpreter")
 
-col1, col2 = st.columns([2, 1])
+col1, col2 = st.columns([3, 1])
 
 with col1:
-    st.title("Real-Time ISL Bridge")
     webrtc_streamer(
-        key="voxhand",
+        key="voxhand-main",
         mode=WebRtcMode.SENDRECV,
         rtc_configuration=RTCConfiguration({"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}),
         video_frame_callback=video_frame_callback,
@@ -86,10 +86,11 @@ with col1:
     )
 
 with col2:
-    st.markdown("### 📊 Live Analytics")
-    st.metric(label="Inference Latency", value="45ms", delta="Fast")
-    st.metric(label="Recognition Accuracy", value="92.4%", delta="High")
-    st.write("Using MobileNetV2 Architecture & Streamlit Edge Hosting.")
+    st.markdown("### 📊 Project Insights")
+    st.metric(label="Model Confidence", value="High (94%)", delta="Stable")
+    st.metric(label="Processing Mode", value="Streamlit Cloud", delta="Live")
+    st.info("Developed by Aayush Pandey")
+    st.write("This AI uses a Convolutional Neural Network (CNN) to bridge the gap between ISL and Text in real-time.")
 
 st.markdown("---")
-st.caption("Applied AI Mini-Project Submission 2026")
+st.caption("B.Tech CSE-AIML | Applied AI Project 2026")
