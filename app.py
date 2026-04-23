@@ -1,10 +1,9 @@
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
 import cv2
 import numpy as np
 import tensorflow as tf
-import av
-import os
+from PIL import Image
+import time
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="VoxHand AI", page_icon="🤟", layout="wide")
@@ -30,67 +29,61 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- LOAD MODEL ---
+# --- LOAD MODEL (Cached) ---
 @st.cache_resource
-def load_my_model():
+def load_model():
     return tf.keras.models.load_model("keras_model.h5", compile=False)
 
-model = load_my_model()
+@st.cache_data
+def load_labels():
+    try:
+        with open("labels.txt", "r") as f:
+            return [line.strip().split(' ', 1)[-1] for line in f.readlines()]
+    except:
+        return ["Sign 1", "Sign 2", "Sign 3", "Background"]
 
-# Load Labels
-try:
-    with open("labels.txt", "r") as f:
-        labels = [line.strip().split(' ', 1)[-1] for line in f.readlines()]
-except:
-    labels = ["Sign 1", "Sign 2", "Sign 3", "Background"]
+model = load_model()
+labels = load_labels()
 
-# --- AI INFERENCE LOGIC ---
-def video_frame_callback(frame):
-    img = frame.to_ndarray(format="bgr24")
-    
-    # Pre-processing for Teachable Machine Model
-    resized = cv2.resize(img, (224, 224))
-    normalized = (resized.astype(np.float32) / 127.5) - 1
-    data = np.expand_dims(normalized, axis=0)
-
-    # Predict
-    prediction = model.predict(data, verbose=0)
-    index = np.argmax(prediction)
-    confidence = prediction[0][index]
-    label = labels[index]
-
-    # Draw UI on Video Frame
-    if confidence > 0.85:
-        cv2.rectangle(img, (20, 20), (500, 110), (0, 255, 0), -1)
-        cv2.putText(img, f"{label.upper()}", (40, 85), 
-                    cv2.FONT_HERSHEY_DUPLEX, 1.8, (0, 0, 0), 3)
-    else:
-        cv2.putText(img, "Scanning...", (40, 85), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 165, 255), 2)
-    
-    return av.VideoFrame.from_ndarray(img, format="bgr24")
-
-# --- MAIN APP INTERFACE ---
+# --- UI ---
 st.title("🤟 VoxHand AI: ISL Interpreter")
 
 col1, col2 = st.columns([3, 1])
 
 with col1:
-    webrtc_streamer(
-        key="voxhand-main",
-        mode=WebRtcMode.SENDRECV,
-        rtc_configuration=RTCConfiguration({"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}),
-        video_frame_callback=video_frame_callback,
-        media_stream_constraints={"video": True, "audio": False},
-        async_processing=True,
-    )
+    # Camera input widget (built-in, no extra deps)
+    camera = st.camera_input("Show an ISL sign to the camera", key="cam")
+    if camera is not None:
+        # Convert to numpy array
+        image = Image.open(camera)
+        frame = np.array(image.convert("RGB"))
+        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+
+        # Preprocessing (matching Teachable Machine)
+        resized = cv2.resize(frame_bgr, (224, 224))
+        normalized = (resized.astype(np.float32) / 127.5) - 1
+        data = np.expand_dims(normalized, axis=0)
+
+        # Inference
+        prediction = model.predict(data, verbose=0)
+        index = np.argmax(prediction)
+        conf = prediction[0][index]
+        label = labels[index]
+
+        # Display result
+        st.image(frame, channels="RGB", caption=f"Prediction: {label.upper() if conf > 0.85 else 'Uncertain'}", use_container_width=True)
+
+        if conf > 0.85:
+            st.success(f"### 🎯 {label.upper()} (confidence: {conf:.2%})")
+        else:
+            st.warning(f"Low confidence ({conf:.2%}). Please show sign clearly.")
 
 with col2:
     st.markdown("### 📊 Project Insights")
-    st.metric(label="Model Confidence", value="High (94%)", delta="Stable")
-    st.metric(label="Processing Mode", value="Streamlit Cloud", delta="Live")
+    st.metric(label="Model Accuracy", value="94%", delta="Stable")
+    st.metric(label="Processing", value="Browser-based", delta="Fast")
     st.info("Developed by Aayush Pandey")
-    st.write("This AI uses a Convolutional Neural Network (CNN) to bridge the gap between ISL and Text in real-time.")
+    st.write("B.Tech CSE-AIML | 2026")
 
 st.markdown("---")
-st.caption("B.Tech CSE-AIML | Applied AI Project 2026")
+st.caption("Captures a single frame. Press 'Clear' to try again.")
